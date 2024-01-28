@@ -4,14 +4,21 @@
 -- Config
 -- Hardcoded time enabling "high resolution" recording. All the clocks sleep on this
 sleepTime = 0.05
+-- The buffers where we store everything
+buffers = {}
+
+-- Gobal recording buffer config
+-- Transformed by buffer[bufferId]:addToBuffer(). It's a bit weird
+-- LATER: This is probably where you start for converting to different voltage ranges 
+rawValue = 0
+rawValueMin = -100
+rawValueMax = 100
+divisor = 20
 
 -- Selected using e1
-activeBufferId = 1
+selectedBufferId = 1
 
--- NEXT: The global recording with local-to-buffer transformation is weird. Revisit this.
-activeEnc2 = 0
-
--- Buffer objects with cv data, recording logic, and playback control
+-- Creates buffer object with cv data buffer, recording logic, and playback control
 function createBuffer(bufferId)
   return {
     bufferId = bufferId,
@@ -22,12 +29,14 @@ function createBuffer(bufferId)
     recordingRef = null,
     toggleRecording = function(self)
       if not self.recording then
+        self.playing = false
         self.recording = true
         self.recordingBuffer = {}
         self.recordingRef = clock.run(self.addToBuffer, self)
       else
         self.recording = false
-        activeEnc2 = 0
+        -- After turning off, reset buffer 
+        rawValue = 0
         self.bufferPosition = 1
       end
       redraw()
@@ -35,14 +44,13 @@ function createBuffer(bufferId)
     addToBuffer = function(self)
       while self.recording do
         -- Transform and save knob position 
-        local enc2InCv = activeEnc2 / 20
-        table.insert(self.recordingBuffer, enc2InCv)
+        local rawInCv = rawValue / divisor
+        table.insert(self.recordingBuffer, rawInCv)
 
         -- Output the voltage
         crow.output[self.bufferId].volts = self.recordingBuffer[#self.recordingBuffer]
 
         redraw()
-
         clock.sleep(sleepTime)
       end
     end,
@@ -56,8 +64,8 @@ function createBuffer(bufferId)
           crow.output[self.bufferId].volts = currentValue
           
           -- Update buffer position for playback
+          -- Loop if at end
           self.bufferPosition = (self.bufferPosition % #self.recordingBuffer) + 1
-
         end
         redraw()
         clock.sleep(sleepTime)
@@ -66,9 +74,14 @@ function createBuffer(bufferId)
   }
 end
 
-buffers = {}
-for i = 1, 4 do
-  table.insert(buffers, createBuffer(i))
+
+function init()
+  -- Create buffers
+  for i = 1, 4 do
+    table.insert(buffers, createBuffer(i))
+  end
+  
+  selectedBuffer = buffers[1]
 end
 
 function capValue(value, min, max)
@@ -78,53 +91,46 @@ end
 function enc(id, delta)
   -- Select active buffer
   if id == 1 then
-    if buffers[activeBufferId].recording then
-      buffers[activeBufferId]:toggleRecording()
+    -- turns off recording on last buffer before moving to the next
+    if selectedBuffer.recording then
+      selectedBuffer:toggleRecording()
     end
     
-    activeBufferId = capValue(activeBufferId + delta, 1, 4)
+    selectedBufferId = capValue(selectedBufferId + delta, 1, 4)
+    selectedBuffer = buffers[selectedBufferId]
     redraw()
   end
 
   -- If the active buffer is in record mode track the knob
-  if id == 2 and buffers[activeBufferId].recording then
-    activeEnc2 = capValue(activeEnc2 + delta, -100, 100)
+  if id == 2 and buffers[selectedBufferId].recording then
+    -- LATER: It's probably trivial to make this a function on the buffer
+    rawValue = capValue(rawValue + delta, rawValueMin, rawValueMax)
   end
 
-  -- Eventually want e3 to pick quantization
+  -- Still free
+  if id == 3 then
+    print("encoder 3")
+  end
 end
 
 function key(id, state)
   -- Toggle record on active buffer
   if id == 2 and state == 1 then
-    -- TODO: Turning on recording should turn off playing
-    buffers[activeBufferId]:toggleRecording()
-
-  -- Toggle playback on active buffer
+    -- Turning recording on turns playing off
+    buffers[selectedBufferId]:toggleRecording()
+  -- Toggle play state and kicks off play routine
+  -- LATER: Should this also be a method like above?
   elseif id == 3 and state == 1 then
-    -- Change buffer[activeBufferId].playing to opposite of current state
-    buffers[activeBufferId].playing = not buffers[activeBufferId].playing
+    buffers[selectedBufferId].playing = not buffers[selectedBufferId].playing
 
-    if buffers[activeBufferId].playing then
-      clock.run(buffers[activeBufferId].playBuffer, buffers[activeBufferId])
+    if buffers[selectedBufferId].playing then
+      clock.run(buffers[selectedBufferId].playBuffer, buffers[selectedBufferId])
     end
-    redraw()
   end
+  redraw()
 end
 
-function redraw()
-  local activeBuffer = buffers[activeBufferId]
-  screen.clear()
-
-  -- Debug
-  -- screen.move(10, 10)
-  -- screen.text('Buffer Position ' .. activeBuffer.bufferPosition)
-
-  -- if activeBuffer.recordingBuffer[activeBuffer.bufferPosition] then
-  --   screen.move(10, 20)
-  --   screen.text('Voltage ' .. activeBuffer.recordingBuffer[activeBuffer.bufferPosition])
-  -- end
-
+function drawUi()
   -- UI Chrome
   screen.level(6)
   screen.move(0, 50)
@@ -132,14 +138,14 @@ function redraw()
 
   screen.font_size(8)
   screen.move(1,60)
-  screen.text('Buffer ' .. activeBuffer.bufferId)
+  screen.text('Buffer ' .. selectedBuffer.bufferId)
   
-  if activeBuffer.recording then
+  if selectedBuffer.recording then
     screen.move(100, 60)
     screen.text_right('REC')
   end
   
-  if activeBuffer.playing then
+  if selectedBuffer.playing then
     screen.move(124, 60)
     screen.text_right('PLAY')
   end
@@ -152,68 +158,79 @@ function redraw()
     screen.line_rel(2, 0)
   end
   screen.stroke()
+end
 
-  -- Scope
-  
-  -- Scope in record mode
-  -- Current position is centered horizontally with past value flowing to the left
-  if activeBuffer.recording then
-    screen.level(8)
-    local start = math.max(1, #activeBuffer.recordingBuffer - 64)
-    local current = #activeBuffer.recordingBuffer
-    for i = start, current do
-      local x = 64 + (i - current) * 2
-      local y = ((activeBuffer.recordingBuffer[i] + 5) / 10) * 50
-      y = 50 - y -- flip the y-axis
-      if i == start then
-        screen.move(x, y)
-      else
-        screen.line(x, y)
-      end
-      -- Change line level based on distance from current position
-      local distance = math.abs(i - current)
-      local level = math.max(1, 5 - distance) -- Adjusted here
-      screen.level(level)
-      screen.stroke() -- Draw the line segment with the current level
-      -- Highlight current position
-      if i == current then
-        screen.circle(x, y, 2) -- Highlight current position
-        screen.fill()
-        screen.move(x, y) -- Start a new path for the rest of the line
-      else
-        screen.move(x, y) -- Start a new path for the next line segment
-      end
+function drawRecordingScope()
+  screen.level(8)
+  local start = math.max(1, #selectedBuffer.recordingBuffer - 64)
+  local current = #selectedBuffer.recordingBuffer
+  for i = start, current do
+    local x = 64 + (i - current) * 2
+    local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+    y = 50 - y -- flip the y-axis
+    if i == start then
+      screen.move(x, y)
+    else
+      screen.line(x, y)
+    end
+    -- Change line level based on distance from current position
+    local distance = math.abs(i - current)
+    local level = math.max(1, 5 - distance) -- Adjusted here
+    screen.level(level)
+    screen.stroke() -- Draw the line segment with the current level
+    -- Highlight current position
+    if i == current then
+      screen.circle(x, y, 2) -- Highlight current position
+      screen.fill()
+      screen.move(x, y) -- Start a new path for the rest of the line
+    else
+      screen.move(x, y) -- Start a new path for the next line segment
     end
   end
-  
+end
+
+function drawPlayingScope()
+  local start = math.max(1, selectedBuffer.bufferPosition - 32)
+  local stop = math.min(#selectedBuffer.recordingBuffer, selectedBuffer.bufferPosition + 32)
+  for i = start, stop do
+    local x = 64 + (i - selectedBuffer.bufferPosition) * 2
+    local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+    y = 50 - y -- flip the y-axis
+    if i == start then
+      screen.move(x, y)
+    else
+      screen.line(x, y)
+    end
+    -- Change line level based on distance from current position
+    local distance = math.abs(i - selectedBuffer.bufferPosition)
+    local level = math.max(1, 5 - distance) -- Adjusted here
+    screen.level(level)
+    screen.stroke() -- Draw the line segment with the current level
+    -- Highlight current position
+    if i == selectedBuffer.bufferPosition then
+      screen.circle(x, y, 2) -- Highlight current position
+      screen.fill()
+      screen.move(x, y) -- Start a new path for the rest of the line
+    else
+      screen.move(x, y) -- Start a new path for the next line segment
+    end
+  end
+end
+
+
+function redraw()
+  screen.clear()
+
+  drawUi()
+  -- Scope in record mode
+  -- Current position is centered horizontally with past value flowing to the left
+  if selectedBuffer.recording then
+    drawRecordingScope()
+  end
   -- Scope in play mode
   -- Current playhead is centered horizontally with past buffer to left and upcoming buffer to right
-  if activeBuffer.playing then
-    local start = math.max(1, activeBuffer.bufferPosition - 32)
-    local stop = math.min(#activeBuffer.recordingBuffer, activeBuffer.bufferPosition + 32)
-    for i = start, stop do
-      local x = 64 + (i - activeBuffer.bufferPosition) * 2
-      local y = ((activeBuffer.recordingBuffer[i] + 5) / 10) * 50
-      y = 50 - y -- flip the y-axis
-      if i == start then
-        screen.move(x, y)
-      else
-        screen.line(x, y)
-      end
-      -- Change line level based on distance from current position
-      local distance = math.abs(i - activeBuffer.bufferPosition)
-      local level = math.max(1, 5 - distance) -- Adjusted here
-      screen.level(level)
-      screen.stroke() -- Draw the line segment with the current level
-      -- Highlight current position
-      if i == activeBuffer.bufferPosition then
-        screen.circle(x, y, 2) -- Highlight current position
-        screen.fill()
-        screen.move(x, y) -- Start a new path for the rest of the line
-      else
-        screen.move(x, y) -- Start a new path for the next line segment
-      end
-    end
+  if selectedBuffer.playing then
+    drawPlayingScope()
   end
 
   screen.update()
