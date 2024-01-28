@@ -1,7 +1,14 @@
--- scriptname
--- v1.0.0 @author
+-- patch tracer
+-- v0.6 @awakening.systems
 -- llllllll.co/t/22222
 --
 -- short script description
+-- knob recorder
+-- four looping buffers with independent control
+-- crow output
 --
 -- short usage instructions
+-- k2 toggles recording
+-- k3 toggles playback
+-- e1 selects buffer
+-- e2 records motion in REC more

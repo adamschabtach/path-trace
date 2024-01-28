@@ -217,6 +217,21 @@ function drawPlayingScope()
   end
 end
 
+-- function drawIdleScope()
+--   local stop = math.min(#selectedBuffer.recordingBuffer, 128)
+--   for i = 1, stop do
+--     local x = i
+--     local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+--     y = 50 - y -- flip the y-axis
+--     if i == 1 then
+--       screen.move(x, y)
+--     else
+--       screen.line(x, y)
+--     end
+--     screen.stroke() -- Draw the line segment
+--   end
+-- end
+
 
 function redraw()
   screen.clear()
@@ -226,11 +241,12 @@ function redraw()
   -- Current position is centered horizontally with past value flowing to the left
   if selectedBuffer.recording then
     drawRecordingScope()
-  end
   -- Scope in play mode
   -- Current playhead is centered horizontally with past buffer to left and upcoming buffer to right
-  if selectedBuffer.playing then
+  elseif selectedBuffer.playing then
     drawPlayingScope()
+  else
+    -- drawIdleScope()
   end
 
   screen.update()
