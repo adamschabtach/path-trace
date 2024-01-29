@@ -13,6 +13,8 @@ buffers = {}
 rawValue = 0
 rawValueMin = -100
 rawValueMax = 100
+outputMin = -5
+outputMax = 5
 divisor = 20
 
 -- Selected using e1
@@ -44,7 +46,7 @@ function createBuffer(bufferId)
     addToBuffer = function(self)
       while self.recording do
         -- Transform and save knob position 
-        local rawInCv = rawValue / divisor
+        local rawInCv = mapValue(rawValue, rawValueMin, rawValueMax, outputMin, outputMax)
         table.insert(self.recordingBuffer, rawInCv)
 
         -- Output the voltage
@@ -86,6 +88,10 @@ end
 
 function capValue(value, min, max)
   return math.min(math.max(value, min), max)
+end
+
+function mapValue(rawValue, rawMin, rawMax, outMin, outMax)
+  return (rawValue - rawMin) / (rawMax - rawMin) * (outMax - outMin) + outMin
 end
 
 function enc(id, delta)
