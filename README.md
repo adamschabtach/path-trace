@@ -12,3 +12,7 @@
 -- k3 toggles playback
 -- e1 selects buffer
 -- e2 records motion in REC more
+--
+-- future ideas
+-- configurable voltage range (currently +/-5v only)
+-- quantization/s&h using crow inputs
