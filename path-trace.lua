@@ -217,20 +217,21 @@ function drawPlayingScope()
   end
 end
 
--- function drawIdleScope()
---   local stop = math.min(#selectedBuffer.recordingBuffer, 128)
---   for i = 1, stop do
---     local x = i
---     local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
---     y = 50 - y -- flip the y-axis
---     if i == 1 then
---       screen.move(x, y)
---     else
---       screen.line(x, y)
---     end
---     screen.stroke() -- Draw the line segment
---   end
--- end
+function drawIdleScope()
+  local stop = math.min(#selectedBuffer.recordingBuffer, 128)
+  for i = 1, stop do
+    local x = i * 2
+    local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+    y = 50 - y -- flip the y-axis
+    if i == 1 then
+      screen.move(x, y)
+    else
+      screen.level(1)
+      screen.line(x, y)
+    end
+  end
+  screen.stroke() -- Draw the line segment
+end
 
 
 function redraw()
@@ -246,7 +247,7 @@ function redraw()
   elseif selectedBuffer.playing then
     drawPlayingScope()
   else
-    -- drawIdleScope()
+    drawIdleScope()
   end
 
   screen.update()
