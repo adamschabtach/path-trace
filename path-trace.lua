@@ -8,14 +8,10 @@ sleepTime = 0.05
 buffers = {}
 
 -- Gobal recording buffer config
--- Transformed by buffer[bufferId]:addToBuffer(). It's a bit weird
--- LATER: This is probably where you start for converting to different voltage ranges 
+-- Transformed by buffer[bufferId]:addToBuffer() and mapped locally. Maybe this moves to a buffer table one day too.
 rawValue = 0
 rawValueMin = -100
 rawValueMax = 100
-outputMin = -5
-outputMax = 5
-divisor = 20
 
 -- Selected using e1
 selectedBufferId = 1
@@ -29,6 +25,8 @@ function createBuffer(bufferId)
     bufferPosition = 1,
     recordingBuffer = {},
     recordingRef = null,
+    outputMin = -5,
+    outputMax = 5,
     toggleRecording = function(self)
       if not self.recording then
         self.playing = false
@@ -46,7 +44,7 @@ function createBuffer(bufferId)
     addToBuffer = function(self)
       while self.recording do
         -- Transform and save knob position 
-        local rawInCv = mapValue(rawValue, rawValueMin, rawValueMax, outputMin, outputMax)
+        local rawInCv = mapValue(rawValue, rawValueMin, rawValueMax, self.outputMin, self.outputMax)
         table.insert(self.recordingBuffer, rawInCv)
 
         -- Output the voltage
@@ -82,8 +80,35 @@ function init()
   for i = 1, 4 do
     table.insert(buffers, createBuffer(i))
   end
-  
+
+  params:add_separator('Path Tracer')
+  -- Add voltage range parameters in a group
+  for i = 1, 4 do
+    params:add_group("Buffer " .. i, 1)
+    params:add{
+      type = "option",
+      id = "voltage_range_" .. i,
+      name = "Voltage Range",
+      options = {"-5/5", "0/10", "0/5"},
+      action = function(value)
+          -- update the voltage range for the current buffer
+          buffers[i].outputMin, buffers[i].outputMax = getVoltageRange(value)
+          print(buffers[i].outputMin)
+      end
+    }
+  end
+
   selectedBuffer = buffers[1]
+end
+
+function getVoltageRange(value)
+  if value == 1 then
+      return -5, 5
+  elseif value == 2 then
+      return 0, 10
+  else
+      return 0, 5
+  end
 end
 
 function capValue(value, min, max)
@@ -158,12 +183,15 @@ function drawUi()
   screen.stroke()
 
   -- There are 50 vertical pixels for the scope so the center is at 25
-  screen.level(1)
-  for x = 0, 128, 4 do
-    screen.move(x, 25)
-    screen.line_rel(2, 0)
+  -- Only draw the dotted line if the range is -5/+5
+  if selectedBuffer.outputMin == -5 and selectedBuffer.outputMax == 5 then
+    screen.level(1)
+    for x = 0, 128, 4 do
+      screen.move(x, 25)
+      screen.line_rel(2, 0)
+    end
+    screen.stroke()
   end
-  screen.stroke()
 end
 
 function drawRecordingScope()
@@ -172,7 +200,7 @@ function drawRecordingScope()
   local current = #selectedBuffer.recordingBuffer
   for i = start, current do
     local x = 64 + (i - current) * 2
-    local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+    local y = ((selectedBuffer.recordingBuffer[i] - selectedBuffer.outputMin) / (selectedBuffer.outputMax - selectedBuffer.outputMin)) * 50
     y = 50 - y -- flip the y-axis
     if i == start then
       screen.move(x, y)
@@ -200,7 +228,7 @@ function drawPlayingScope()
   local stop = math.min(#selectedBuffer.recordingBuffer, selectedBuffer.bufferPosition + 32)
   for i = start, stop do
     local x = 64 + (i - selectedBuffer.bufferPosition) * 2
-    local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+    local y = ((selectedBuffer.recordingBuffer[i] - selectedBuffer.outputMin) / (selectedBuffer.outputMax - selectedBuffer.outputMin)) * 50
     y = 50 - y -- flip the y-axis
     if i == start then
       screen.move(x, y)
@@ -227,7 +255,7 @@ function drawIdleScope()
   local stop = math.min(#selectedBuffer.recordingBuffer, 128)
   for i = 1, stop do
     local x = i * 2
-    local y = ((selectedBuffer.recordingBuffer[i] + 5) / 10) * 50
+    local y = ((selectedBuffer.recordingBuffer[i] - selectedBuffer.outputMin) / (selectedBuffer.outputMax - selectedBuffer.outputMin)) * 50
     y = 50 - y -- flip the y-axis
     if i == 1 then
       screen.move(x, y)
