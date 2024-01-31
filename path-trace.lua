@@ -1,3 +1,5 @@
+musicutil = require 'musicutil'
+
 -- Four looping, recordable bufers with independent quantization
 -- NEXT: s&h/quantization coming in from crow inputs
 
@@ -6,7 +8,6 @@
 sleepTime = 0.05
 -- The buffers where we store everything
 buffers = {}
-
 -- Gobal recording buffer config
 -- Transformed by buffer[bufferId]:addToBuffer() and mapped locally. Maybe this moves to a buffer table one day too.
 rawValue = 0
@@ -16,12 +17,36 @@ rawValueMax = 100
 -- Selected using e1
 selectedBufferId = 1
 
+-- Helper Functions for common tasks
+function getVoltageRange(value)
+    if value == 1 then
+        return -5, 5
+    elseif value == 2 then
+        return 0, 10
+    else
+        return 0, 5
+    end
+  end
+  
+function capValue(value, min, max)
+    return math.min(math.max(value, min), max)
+end
+function mapValue(rawValue, rawMin, rawMax, outMin, outMax)
+    return (rawValue - rawMin) / (rawMax - rawMin) * (outMax - outMin) + outMin
+end
+
 -- Creates buffer object with cv data buffer, recording logic, and playback control
 function createBuffer(bufferId)
   return {
     bufferId = bufferId,
     recording = false,
     playing = false,
+    quantizedActive = false,
+    sampleAndHoldActive = false,
+    sampleAndHoldInput = 0,
+    heldValue = 0,
+    octaveMin = 1,
+    octaveMax = 3,
     bufferPosition = 1,
     recordingBuffer = {},
     recordingRef = null,
@@ -60,9 +85,12 @@ function createBuffer(bufferId)
           self.playing = false
         else
           -- Output voltage
-          local currentValue = self.recordingBuffer[self.bufferPosition]
-          crow.output[self.bufferId].volts = currentValue
-          
+        --   todo: self.
+          if self.sampleAndHoldActive then
+            crow.output[self.bufferId].volts = self.heldValue
+          else
+            crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
+          end
           -- Update buffer position for playback
           -- Loop if at end
           self.bufferPosition = (self.bufferPosition % #self.recordingBuffer) + 1
@@ -70,9 +98,89 @@ function createBuffer(bufferId)
         redraw()
         clock.sleep(sleepTime)
       end
+    end,
+    sampleAndHold = function(self)
+      -- Use the most recent value from the recordingBuffer
+      local rawValue = self.recordingBuffer[bufferPosition]
+
+      -- If quantized is false but sampleAndHoldInput > 0, store the current value without quantization
+      if not self.quantizedActive and self.quantizedActive then
+        self.heldValue = rawValue
+      else
+        -- TODO: Write musical quantization logic
+
+      end
     end
   }
 end
+
+function addParameters()
+    params:add_separator('Path Tracer')
+    
+    -- params:add{
+    --   type = "option",
+    --   id = "key",
+    --   name = "Key",
+    --   options = musicutil.NOTE_NAMES,
+    --   default = 1
+    -- }
+    
+    -- params:add{
+    --   type = "option",
+    --   id = "mode",
+    --   name = "Mode",
+    --   options = scaleNames,
+    --   default = 1
+    -- }
+      
+    -- Add voltage range parameters in a group
+    for i = 1, 4 do
+      params:add_group("Buffer " .. i, 4)
+      params:add{
+        type = "option",
+        id = "voltage_range_" .. i,
+        name = "Voltage Range",
+        options = {"-5/5", "0/10", "0/5"},
+        action = function(value)
+            -- update the voltage range for the current buffer
+            buffers[i].outputMin, buffers[i].outputMax = getVoltageRange(value)
+            print(buffers[i].outputMin)
+        end
+      }
+      params:add{
+        type = "option",
+        id = "quantize_buffer_" .. i,
+        name = "Quantize",
+        options = {"Off", "On"},
+        action = function(value)
+          buffers[i].quantizedActive = (value == 2)
+        end
+      }
+      -- params:add{
+      --   type = "number",
+      --   id = "min_oct_" .. i,
+      --   name = "Octave Minimum",
+      --   min = -1,
+      --   max = 3,
+      --   default = 2,
+      --   action = function(value)
+      --     buffers[i].octaveMin = value
+      --   end
+      -- }
+      -- params:add{
+      --   type = "number",
+      --   id = "max_oct_" .. i,
+      --   name = "Octave Maximum",
+      --   min = 4,
+      --   max = 6,
+      --   default = 3,
+      --   action = function(value)
+      --     buffers[i].octaveMax = value
+      --   end
+      -- }
+    end
+end
+
 
 
 function init()
@@ -81,43 +189,31 @@ function init()
     table.insert(buffers, createBuffer(i))
   end
 
-  params:add_separator('Path Tracer')
-  -- Add voltage range parameters in a group
-  for i = 1, 4 do
-    params:add_group("Buffer " .. i, 1)
-    params:add{
-      type = "option",
-      id = "voltage_range_" .. i,
-      name = "Voltage Range",
-      options = {"-5/5", "0/10", "0/5"},
-      action = function(value)
-          -- update the voltage range for the current buffer
-          buffers[i].outputMin, buffers[i].outputMax = getVoltageRange(value)
-          print(buffers[i].outputMin)
-      end
-    }
-  end
+  addParameters()
 
   selectedBuffer = buffers[1]
-end
 
-function getVoltageRange(value)
-  if value == 1 then
-      return -5, 5
-  elseif value == 2 then
-      return 0, 10
-  else
-      return 0, 5
+  -- Wait for a pulse on crow input 1
+  crow.input[1].change = function()
+    -- Call the quantize function on all buffers
+    for _, buffer in ipairs(buffers) do
+        if buffer.quantizeActive and buffer.sampleAndHoldActive then
+            buffer:sampleAndHold()
+        end
+    end
+  end
+
+  -- Wait for a pulse on crow input 2
+  crow.input[2].change = function()
+    -- Call the quantize function on all buffers with quantized = true and a matching sampleAndHoldInput number
+    for _, buffer in ipairs(buffers) do
+      if buffer.quantized and buffer.sampleAndHoldInput == 2 then
+        buffer:sampleAndHold()
+      end
+    end
   end
 end
 
-function capValue(value, min, max)
-  return math.min(math.max(value, min), max)
-end
-
-function mapValue(rawValue, rawMin, rawMax, outMin, outMax)
-  return (rawValue - rawMin) / (rawMax - rawMin) * (outMax - outMin) + outMin
-end
 
 function enc(id, delta)
   -- Select active buffer
