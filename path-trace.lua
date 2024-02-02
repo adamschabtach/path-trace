@@ -1,33 +1,28 @@
-musicutil = require 'musicutil'
-
 -- Four looping, recordable bufers with independent quantization
--- NEXT: s&h/quantization coming in from crow inputs
 
--- Config
--- Hardcoded time enabling "high resolution" recording. All the clocks sleep on this
-sleepTime = 0.05
--- The buffers where we store everything
-buffers = {}
--- Gobal recording buffer config
--- Transformed by buffer[bufferId]:addToBuffer() and mapped locally. Maybe this moves to a buffer table one day too.
-rawValue = 0
-rawValueMin = -100
-rawValueMax = 100
+musicutil = require 'musicutil' -- Musicutil library for quantization support
 
--- Selected using e1
-selectedBufferId = 1
+-- Configuration Variables
+sleepTime = 0.05 -- Time in between recording 50ms fairly arbitrary
+buffers = {} -- The buffers where we store everything
+scaleNames = {} -- Constructed from musicutil, used in "scale" parameter selection
+mode = 1 -- Mode parameter for global quantization
+scaleKey = 0 -- Key parameter for gloval quantization
+rawValue = 0 -- Initial value for knob recording
+rawValueMin = -100 -- Knob recording minimum
+rawValueMax = 100 -- Knob recording maximum
+selectedBufferId = 1 -- Initial buffer. Changed with e2
 
 -- Helper Functions for common tasks
 function getVoltageRange(value)
-    if value == 1 then
-        return -5, 5
-    elseif value == 2 then
-        return 0, 10
-    else
-        return 0, 5
-    end
+  if value == 1 then
+      return -5, 5
+  elseif value == 2 then
+      return 0, 10
+  else
+      return 0, 5
   end
-  
+end
 function capValue(value, min, max)
     return math.min(math.max(value, min), max)
 end
@@ -38,20 +33,23 @@ end
 -- Creates buffer object with cv data buffer, recording logic, and playback control
 function createBuffer(bufferId)
   return {
+    -- Metadata
     bufferId = bufferId,
-    recording = false,
-    playing = false,
-    quantizedActive = false,
-    sampleAndHoldActive = false,
-    sampleAndHoldInput = 0,
-    heldValue = 0,
-    octaveMin = 1,
-    octaveMax = 3,
-    bufferPosition = 1,
-    recordingBuffer = {},
-    recordingRef = null,
     outputMin = -5,
     outputMax = 5,
+    -- Playback
+    recording = false,
+    playing = false,
+    recordingRef = nil,
+    recordingBuffer = {},
+    bufferPosition = 1,
+    -- Quantization
+    quantizedActive = false,
+    sampleAndHoldInput = 0,
+    scale = {},
+    heldValue = 0,
+    octaveMin = 2,
+    octaveRange = 4,
     toggleRecording = function(self)
       if not self.recording then
         self.playing = false
@@ -84,9 +82,8 @@ function createBuffer(bufferId)
         if #self.recordingBuffer == 0 then
           self.playing = false
         else
-          -- Output voltage
-        --   todo: self.
-          if self.sampleAndHoldActive then
+          -- If sample and hold is active
+          if not self.sampleAndHoldInput == 0 then
             crow.output[self.bufferId].volts = self.heldValue
           else
             crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
@@ -101,15 +98,24 @@ function createBuffer(bufferId)
     end,
     sampleAndHold = function(self)
       -- Use the most recent value from the recordingBuffer
-      local rawValue = self.recordingBuffer[bufferPosition]
+      local currentValue = self.recordingBuffer[self.bufferPosition]
 
-      -- If quantized is false but sampleAndHoldInput > 0, store the current value without quantization
-      if not self.quantizedActive and self.quantizedActive then
-        self.heldValue = rawValue
+      -- Map the currentValue within the output range to a scale index
+      local scaleIndex = math.floor(mapValue(currentValue, self.outputMin, self.outputMax, 1, #self.scale + 1))
+      scaleIndex = capValue(scaleIndex, 1, #self.scale) -- Ensure the index is within the scale's bounds
+
+      local selectedNote = self.scale[scaleIndex]
+      -- If quantized is active, use the selected note
+      if self.quantizedActive then
+        self.heldValue = selectedNote
       else
-        -- TODO: Write musical quantization logic
-
+        -- If quantization is not active, directly use the currentValue
+        self.heldValue = currentValue
       end
+    end,
+    buildScale = function(self)
+      local rootNote =  (self.octaveMin * 12) + scaleKey
+      self.scale = musicutil.generate_scale(rootNote, params:get("mode"), self.octaveRange)
     end
   }
 end
@@ -117,25 +123,36 @@ end
 function addParameters()
     params:add_separator('Path Tracer')
     
-    -- params:add{
-    --   type = "option",
-    --   id = "key",
-    --   name = "Key",
-    --   options = musicutil.NOTE_NAMES,
-    --   default = 1
-    -- }
+    params:add{
+      type = "option",
+      id = "scaleKey",
+      name = "Key",
+      options = musicutil.NOTE_NAMES,
+      default = 1,
+      action = function(value)
+        scaleKey = value - 1 -- Store the selected index (adjusted for 0-based indexing used in buildScale math)
+        for i = 1, 4 do
+          buffers[i]:buildScale()
+        end
+      end
+    }
     
-    -- params:add{
-    --   type = "option",
-    --   id = "mode",
-    --   name = "Mode",
-    --   options = scaleNames,
-    --   default = 1
-    -- }
+    params:add{
+      type = "option",
+      id = "mode",
+      name = "Mode",
+      options = scaleNames,
+      default = 1,
+      action = function(value)
+        for i = 1, 4 do
+          buffers[i]:buildScale()
+        end
+      end
+    }
       
     -- Add voltage range parameters in a group
     for i = 1, 4 do
-      params:add_group("Buffer " .. i, 4)
+      params:add_group("Buffer " .. i, 5)
       params:add{
         type = "option",
         id = "voltage_range_" .. i,
@@ -144,7 +161,16 @@ function addParameters()
         action = function(value)
             -- update the voltage range for the current buffer
             buffers[i].outputMin, buffers[i].outputMax = getVoltageRange(value)
-            print(buffers[i].outputMin)
+        end
+      }
+      params:add{
+        type = "option",
+        id = "sampleAndHoldInput_" .. i,
+        name = "Sample And Hold Input",
+        options = {"0", "1", "2"},
+        default = 1, -- Default to 0, adjust according to your needs
+        action = function(value)
+          buffers[i].sampleAndHoldInput = tonumber(value)
         end
       }
       params:add{
@@ -156,40 +182,53 @@ function addParameters()
           buffers[i].quantizedActive = (value == 2)
         end
       }
-      -- params:add{
-      --   type = "number",
-      --   id = "min_oct_" .. i,
-      --   name = "Octave Minimum",
-      --   min = -1,
-      --   max = 3,
-      --   default = 2,
-      --   action = function(value)
-      --     buffers[i].octaveMin = value
-      --   end
-      -- }
-      -- params:add{
-      --   type = "number",
-      --   id = "max_oct_" .. i,
-      --   name = "Octave Maximum",
-      --   min = 4,
-      --   max = 6,
-      --   default = 3,
-      --   action = function(value)
-      --     buffers[i].octaveMax = value
-      --   end
-      -- }
+      params:add{
+        type = "number",
+        id = "octaveMin_" .. i,
+        name = "Base Octave",
+        min = 0,
+        max = 6,
+        default = 2,
+        action = function(value)
+          buffers[i].octaveMin = value
+          buffers[i]:buildScale()
+        end
+      }
+      params:add{
+        type = "number",
+        id = "octaveMax_" .. i,
+        name = "Octave Range",
+        min = 0,
+        max = 6,
+        default = 1,
+        action = function(value)
+          buffers[i].octaveRange = value
+          buffers[i]:buildScale()
+        end
+      }
     end
 end
 
 
 
 function init()
+  -- Set up scale param
+  for i = 1, #musicutil.SCALES do
+    table.insert(scaleNames, musicutil.SCALES[i].name) 
+  end
+  scaleKey = 0
+  mode = 1
+
   -- Create buffers
   for i = 1, 4 do
     table.insert(buffers, createBuffer(i))
   end
-
+  
   addParameters()
+
+  for i = 1, 4 do
+    buffers[i]:buildScale()
+  end
 
   selectedBuffer = buffers[1]
 
@@ -197,7 +236,7 @@ function init()
   crow.input[1].change = function()
     -- Call the quantize function on all buffers
     for _, buffer in ipairs(buffers) do
-        if buffer.quantizeActive and buffer.sampleAndHoldActive then
+        if buffer.quantizedActive and buffer.sampleAndHoldInput == 1 then
             buffer:sampleAndHold()
         end
     end
@@ -207,7 +246,7 @@ function init()
   crow.input[2].change = function()
     -- Call the quantize function on all buffers with quantized = true and a matching sampleAndHoldInput number
     for _, buffer in ipairs(buffers) do
-      if buffer.quantized and buffer.sampleAndHoldInput == 2 then
+      if buffer.quantizedActive and buffer.sampleAndHoldInput == 2 then
         buffer:sampleAndHold()
       end
     end
@@ -236,7 +275,7 @@ function enc(id, delta)
 
   -- Still free
   if id == 3 then
-    print("encoder 3")
+    buffers[1]:sampleAndHold()
   end
 end
 
