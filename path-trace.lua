@@ -1,5 +1,4 @@
 -- Four looping, recordable bufers with independent quantization
-
 musicutil = require 'musicutil' -- Musicutil library for quantization support
 
 -- Configuration Variables
@@ -275,7 +274,7 @@ function enc(id, delta)
 
   -- Still free
   if id == 3 then
-    buffers[1]:sampleAndHold()
+
   end
 end
 
@@ -315,6 +314,7 @@ function drawUi()
     screen.move(124, 60)
     screen.text_right('PLAY')
   end
+
   screen.stroke()
 
   -- There are 50 vertical pixels for the scope so the center is at 25
