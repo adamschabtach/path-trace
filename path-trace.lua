@@ -149,36 +149,62 @@ function addParameters()
       end
     }
       
-    -- Add voltage range parameters in a group
+    -- Create a group for individual buffer params
     for i = 1, 4 do
       params:add_group("Buffer " .. i, 5)
+      -- Select voltage range
       params:add{
         type = "option",
         id = "voltage_range_" .. i,
         name = "Voltage Range",
         options = {"-5/5", "0/10", "0/5"},
         action = function(value)
-            -- update the voltage range for the current buffer
+            -- TODO: It there a better way to do this? getVoltageRange seems unnecessary
             buffers[i].outputMin, buffers[i].outputMax = getVoltageRange(value)
         end
       }
+      -- Select crow input to trigger s&h
+      local CROW_INPUT_OPTIONS={"Off", "1", "2"}
       params:add{
         type = "option",
         id = "sampleAndHoldInput_" .. i,
-        name = "Sample And Hold Input",
-        options = {"0", "1", "2"},
-        default = 1, -- Default to 0, adjust according to your needs
+        name = "Crow S&H Input",
+        options = CROW_INPUT_OPTIONS,
+        default = tab.key(CROW_INPUT_OPTIONS, "Off"), 
         action = function(value)
-          buffers[i].sampleAndHoldInput = tonumber(value)
+          local input = CROW_INPUT_OPTIONS[value]
+          if input == "off" then
+            buffers[i].sampleAndHoldInput = nil
+            params:hide("quantize_buffer_" .. i)
+            params:hide("octaveMin_" .. i)
+            params:hide("octaveMax_" .. i)
+          else
+            buffers[i].sampleAndHoldInput = tonumber(input)
+            params:show("quantize_buffer_" .. i)
+            if params:string("quantize_buffer_" .. i) == "On" then -- NB: params:string allows getting the option name for an options param
+              params:show("octaveMin_" .. i)
+              params:show("octaveMax_" .. i)              
+            end
+          end
+          _menu.rebuild_params()
         end
       }
       params:add{
         type = "option",
         id = "quantize_buffer_" .. i,
-        name = "Quantize",
+        name = "S&H Quantize",
         options = {"Off", "On"},
         action = function(value)
-          buffers[i].quantizedActive = (value == 2)
+          local status = (value == 2)
+          buffers[i].quantizedActive = status
+          if status then
+             params:show("octaveMin_" .. i)
+             params:show("octaveMax_" .. i)
+          else
+             params:hide("octaveMin_" .. i)
+             params:hide("octaveMax_" .. i)
+          end   
+          _menu.rebuild_params()
         end
       }
       params:add{
@@ -205,6 +231,9 @@ function addParameters()
           buffers[i]:buildScale()
         end
       }
+
+      params:hide("octaveMin_" .. i)
+      params:hide("octaveMax_" .. i)
     end
 end
 
