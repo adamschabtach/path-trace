@@ -26,7 +26,12 @@ function capValue(value, min, max)
     return math.min(math.max(value, min), max)
 end
 function mapValue(rawValue, rawMin, rawMax, outMin, outMax)
-    return (rawValue - rawMin) / (rawMax - rawMin) * (outMax - outMin) + outMin
+  -- LATER: Where am I setting nil
+  rawValue = rawValue or 0 -- Default to 0 if rawValue is nil
+  return (rawValue - rawMin) / (rawMax - rawMin) * (outMax - outMin) + outMin
+end
+function midiToVOct(midiNote)
+  return (midiNote - 60) / 12
 end
 
 -- Creates buffer object with cv data buffer, recording logic, and playback control
@@ -78,13 +83,17 @@ function createBuffer(bufferId)
     end,
     playBuffer = function(self)
       while self.playing do
+        -- If there's nothing in the buffer don't play
         if #self.recordingBuffer == 0 then
+          -- LATER: Should cancel the recordingRef here rather than flip this bool
           self.playing = false
         else
           -- If sample and hold is active
-          if not self.sampleAndHoldInput == 0 then
-            crow.output[self.bufferId].volts = self.heldValue
+          if self.sampleAndHoldInput == 1 or self.sampleAndHoldInput == 2 then
+            print("held " .. self.heldValue)
+            crow.output[self.bufferId].volts =self.heldValue
           else
+            print("raw " .. self.recordingBuffer[self.bufferPosition])
             crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
           end
           -- Update buffer position for playback
@@ -96,20 +105,29 @@ function createBuffer(bufferId)
       end
     end,
     sampleAndHold = function(self)
-      -- Use the most recent value from the recordingBuffer
+      print('New s&h event on buffer ' .. self.bufferId)
+      
+      -- Fetch the most recent value from the recordingBuffer
       local currentValue = self.recordingBuffer[self.bufferPosition]
 
-      -- Map the currentValue within the output range to a scale index
-      local scaleIndex = math.floor(mapValue(currentValue, self.outputMin, self.outputMax, 1, #self.scale + 1))
-      scaleIndex = capValue(scaleIndex, 1, #self.scale) -- Ensure the index is within the scale's bounds
-
-      local selectedNote = self.scale[scaleIndex]
-      -- If quantized is active, use the selected note
+      -- Determine if quantization is active and process accordingly
       if self.quantizedActive then
-        self.heldValue = selectedNote
+        -- Quantization is active:
+        -- 1. Map the currentValue to a scale index within the output range
+        local scaleIndex = math.floor(mapValue(currentValue, self.outputMin, self.outputMax, 1, #self.scale + 1))
+        -- 2. Ensure the scaleIndex is within the bounds of the scale
+        scaleIndex = capValue(scaleIndex, 1, #self.scale)
+        -- 3. Select the note from the scale based on the scaleIndex
+        local selectedNote = self.scale[scaleIndex]
+        local noteInV8 = midiToVOct(selectedNote)
+        
+        print('Q ' .. selectedNote) -- Log the quantized note
+        print('v/8 ' .. noteInV8) -- Log the v/oct note
+        self.heldValue = noteInV8 -- Set the voltage to the helf value
       else
-        -- If quantization is not active, directly use the currentValue
-        self.heldValue = currentValue
+        -- Quantization is not active: use the currentValue directly
+        print('R ' .. currentValue) -- Log the raw currentValue
+        self.heldValue = currentValue -- Set the heldValue to the raw currentValue
       end
     end,
     buildScale = function(self)
@@ -174,7 +192,7 @@ function addParameters()
         action = function(value)
           local input = CROW_INPUT_OPTIONS[value]
           if input == "off" then
-            buffers[i].sampleAndHoldInput = nil
+            buffers[i].sampleAndHoldInput = 0
             params:hide("quantize_buffer_" .. i)
             params:hide("octaveMin_" .. i)
             params:hide("octaveMax_" .. i)
@@ -244,15 +262,18 @@ function init()
   for i = 1, #musicutil.SCALES do
     table.insert(scaleNames, musicutil.SCALES[i].name) 
   end
-  scaleKey = 0
-  mode = 1
+
+  addParameters()
+  params:set("scaleKey", 0)
+  -- scaleKey = 0
+  params:set("mode", 1)
+  -- mode = 1
 
   -- Create buffers
   for i = 1, 4 do
     table.insert(buffers, createBuffer(i))
   end
   
-  addParameters()
 
   for i = 1, 4 do
     buffers[i]:buildScale()
@@ -260,25 +281,31 @@ function init()
 
   selectedBuffer = buffers[1]
 
-  -- Wait for a pulse on crow input 1
+  -- Wait for a pulse on crow input
   crow.input[1].change = function()
+    print('BING')
     -- Call the quantize function on all buffers
     for _, buffer in ipairs(buffers) do
-        if buffer.quantizedActive and buffer.sampleAndHoldInput == 1 then
-            buffer:sampleAndHold()
-        end
+      -- print("Buffer ID:", buffer.bufferId, "Quantized:", buffer.quantizedActive, "S&H Input:", buffer.sampleAndHoldInput)
+      -- buffer.quantizedActive = true
+      -- buffer.sampleAndHoldInput = 1
+      if buffer.sampleAndHoldInput == 1 then
+        buffer:sampleAndHold()
+      end
     end
   end
+  crow.input[1].mode("change", 1.0, 0.1, "rising")
 
   -- Wait for a pulse on crow input 2
   crow.input[2].change = function()
     -- Call the quantize function on all buffers with quantized = true and a matching sampleAndHoldInput number
     for _, buffer in ipairs(buffers) do
-      if buffer.quantizedActive and buffer.sampleAndHoldInput == 2 then
+      if buffer.sampleAndHoldInput == 2 then
         buffer:sampleAndHold()
       end
     end
   end
+  crow.input[2].mode("change", 1.0, 0.1, "rising")
 end
 
 
@@ -298,7 +325,8 @@ function enc(id, delta)
   -- If the active buffer is in record mode track the knob
   if id == 2 and buffers[selectedBufferId].recording then
     -- LATER: It's probably trivial to make this a function on the buffer
-    rawValue = capValue(rawValue + delta, rawValueMin, rawValueMax)
+    -- local scaledDelta = delta * 2 -- This allows for one quick turn to go top-to-bottom.
+    rawValue = capValue(rawValue + scaledDelta, rawValueMin, rawValueMax)
   end
 
   -- Still free
@@ -318,6 +346,7 @@ function key(id, state)
     buffers[selectedBufferId].playing = not buffers[selectedBufferId].playing
 
     if buffers[selectedBufferId].playing then
+      -- TODO: I think we actually want to stop the clock when this turns off
       clock.run(buffers[selectedBufferId].playBuffer, buffers[selectedBufferId])
     end
   end
