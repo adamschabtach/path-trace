@@ -2,7 +2,7 @@
 musicutil = require 'musicutil' -- Musicutil library for quantization support
 
 -- Configuration Variables
-sleepTime = 0.02 -- Time in between recording 50ms fairly arbitrary
+sleepTime = 0.03 -- Time in between recording 50ms fairly arbitrary
 buffers = {} -- The buffers where we store everything
 scaleNames = {} -- Constructed from musicutil, used in "scale" parameter selection
 mode = 1 -- Mode parameter for global quantization
@@ -90,10 +90,10 @@ function createBuffer(bufferId)
         else
           -- If sample and hold is active
           if self.sampleAndHoldInput == 1 or self.sampleAndHoldInput == 2 then
-            print("held " .. self.heldValue)
+            -- print("held " .. self.heldValue)
             crow.output[self.bufferId].volts =self.heldValue
           else
-            print("raw " .. self.recordingBuffer[self.bufferPosition])
+            -- print("raw " .. self.recordingBuffer[self.bufferPosition])
             crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
           end
           -- Update buffer position for playback
