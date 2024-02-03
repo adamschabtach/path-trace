@@ -2,7 +2,7 @@
 musicutil = require 'musicutil' -- Musicutil library for quantization support
 
 -- Configuration Variables
-sleepTime = 0.05 -- Time in between recording 50ms fairly arbitrary
+sleepTime = 0.02 -- Time in between recording 50ms fairly arbitrary
 buffers = {} -- The buffers where we store everything
 scaleNames = {} -- Constructed from musicutil, used in "scale" parameter selection
 mode = 1 -- Mode parameter for global quantization
@@ -325,7 +325,7 @@ function enc(id, delta)
   -- If the active buffer is in record mode track the knob
   if id == 2 and buffers[selectedBufferId].recording then
     -- LATER: It's probably trivial to make this a function on the buffer
-    -- local scaledDelta = delta * 2 -- This allows for one quick turn to go top-to-bottom.
+    local scaledDelta = delta * 2 -- This allows for one quick turn to go top-to-bottom.
     rawValue = capValue(rawValue + scaledDelta, rawValueMin, rawValueMax)
   end
 
