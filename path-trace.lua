@@ -41,12 +41,47 @@ function createBuffer(bufferId)
     bufferId = bufferId,
     outputMin = -5,
     outputMax = 5,
-    -- Playback
+    -- Recording
     recording = false,
-    playing = false,
     recordingRef = nil,
     recordingBuffer = {},
+    -- Playback
+    playing = false,
+    playback_ref = nil,
     bufferPosition = 1,
+    playback_start = function(self)
+      -- If there's nothing in the buffer don't play
+      if #self.recordingBuffer == 0 then
+        self.playing = false
+      else
+        self.playing = true
+        self.playback_ref = clock.run(self.next_playback_position, self)
+      end
+    end,
+    playback_stop = function(self)
+      self.playing = false 
+
+      if self.playback_ref then
+        clock.cancel(self.playback_ref)
+        self.playback_ref = nil
+        self.bufferPosition = 1
+      end
+    end,
+    next_playback_position = function(self)
+      while self.playing do
+        -- Use the held value is sample and hold is active
+        if self.sampleAndHoldInput == 1 or self.sampleAndHoldInput == 2 then
+          crow.output[self.bufferId].volts =self.heldValue
+        else
+          -- Otherwise use whatever is in the current buffer position
+          crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
+        end
+        -- Update buffer position for playback and loop if at end
+        self.bufferPosition = (self.bufferPosition % #self.recordingBuffer) + 1
+        redraw()
+        clock.sleep(sleepTime)
+      end
+    end,
     -- Quantization
     quantizedActive = false,
     sampleAndHoldInput = 0,
@@ -77,29 +112,6 @@ function createBuffer(bufferId)
         -- Output the voltage
         crow.output[self.bufferId].volts = self.recordingBuffer[#self.recordingBuffer]
 
-        redraw()
-        clock.sleep(sleepTime)
-      end
-    end,
-    playBuffer = function(self)
-      while self.playing do
-        -- If there's nothing in the buffer don't play
-        if #self.recordingBuffer == 0 then
-          -- LATER: Should cancel the recordingRef here rather than flip this bool
-          self.playing = false
-        else
-          -- If sample and hold is active
-          if self.sampleAndHoldInput == 1 or self.sampleAndHoldInput == 2 then
-            -- print("held " .. self.heldValue)
-            crow.output[self.bufferId].volts =self.heldValue
-          else
-            -- print("raw " .. self.recordingBuffer[self.bufferPosition])
-            crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
-          end
-          -- Update buffer position for playback
-          -- Loop if at end
-          self.bufferPosition = (self.bufferPosition % #self.recordingBuffer) + 1
-        end
         redraw()
         clock.sleep(sleepTime)
       end
@@ -340,14 +352,13 @@ function key(id, state)
   if id == 2 and state == 1 then
     -- Turning recording on turns playing off
     buffers[selectedBufferId]:toggleRecording()
-  -- Toggle play state and kicks off play routine
-  -- LATER: Should this also be a method like above?
-  elseif id == 3 and state == 1 then
-    buffers[selectedBufferId].playing = not buffers[selectedBufferId].playing
 
-    if buffers[selectedBufferId].playing then
-      -- TODO: I think we actually want to stop the clock when this turns off
-      clock.run(buffers[selectedBufferId].playBuffer, buffers[selectedBufferId])
+  -- Toggle playback based on current state
+  elseif id == 3 and state == 1 then
+    if not buffers[selectedBufferId].playing then
+      buffers[selectedBufferId]:playback_start()
+    elseif buffers[selectedBufferId].playing then
+      buffers[selectedBufferId]:playback_stop()
     end
   end
   redraw()
