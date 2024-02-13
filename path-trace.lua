@@ -44,18 +44,53 @@ function createBuffer(bufferId)
     -- Recording
     recording = false,
     recordingRef = nil,
+    maximum_duration = 5 * 60 / sleepTime, -- Arbitrarily set to be 5 minutes
     recordingBuffer = {},
+    recording_start = function(self)
+      self.playing = false
+      self.recording = true
+      self.recordingBuffer = {}
+      self.recordingRef = clock.run(self.add_to_buffer, self)
+      redraw()
+    end,
+    recording_stop = function(self)
+      self.recording = false
+      rawValue = 0
+      clock.cancel(self.recordingRef)
+      self.bufferPosition = 1
+      redraw()
+    end,
+    add_to_buffer = function(self)      
+      while self.recording do
+        -- Check if buffer length exceeds maximum_duration before adding new value
+        if #self.recordingBuffer >= self.maximum_duration then
+          self:recording_stop()
+          return 
+        end
+
+        -- Transform and save knob position 
+        local rawInCv = mapValue(rawValue, rawValueMin, rawValueMax, self.outputMin, self.outputMax)
+        table.insert(self.recordingBuffer, rawInCv)
+
+        -- Output the voltage
+        crow.output[self.bufferId].volts = self.recordingBuffer[#self.recordingBuffer]
+
+        redraw()
+        clock.sleep(sleepTime)
+      end
+    end,
     -- Playback
     playing = false,
     playback_ref = nil,
     bufferPosition = 1,
     playback_start = function(self)
-      -- If there's nothing in the buffer don't play
-      if #self.recordingBuffer == 0 then
-        self.playing = false
+      if #self.recordingBuffer == 0 then 
+        return -- If there's nothing in the buffer don't play
+      elseif self.recording then
+        return -- If we're recording don't play
       else
         self.playing = true
-        self.playback_ref = clock.run(self.next_playback_position, self)
+        self.playback_ref = clock.run(function() self:next_playback_position() end)
       end
     end,
     playback_stop = function(self)
@@ -89,33 +124,6 @@ function createBuffer(bufferId)
     heldValue = 0,
     octaveMin = 2,
     octaveRange = 4,
-    toggleRecording = function(self)
-      if not self.recording then
-        self.playing = false
-        self.recording = true
-        self.recordingBuffer = {}
-        self.recordingRef = clock.run(self.addToBuffer, self)
-      else
-        self.recording = false
-        -- After turning off, reset buffer 
-        rawValue = 0
-        self.bufferPosition = 1
-      end
-      redraw()
-    end,
-    addToBuffer = function(self)
-      while self.recording do
-        -- Transform and save knob position 
-        local rawInCv = mapValue(rawValue, rawValueMin, rawValueMax, self.outputMin, self.outputMax)
-        table.insert(self.recordingBuffer, rawInCv)
-
-        -- Output the voltage
-        crow.output[self.bufferId].volts = self.recordingBuffer[#self.recordingBuffer]
-
-        redraw()
-        clock.sleep(sleepTime)
-      end
-    end,
     sampleAndHold = function(self)
       print('New s&h event on buffer ' .. self.bufferId)
       
@@ -295,7 +303,6 @@ function init()
 
   -- Wait for a pulse on crow input
   crow.input[1].change = function()
-    print('BING')
     -- Call the quantize function on all buffers
     for _, buffer in ipairs(buffers) do
       -- print("Buffer ID:", buffer.bufferId, "Quantized:", buffer.quantizedActive, "S&H Input:", buffer.sampleAndHoldInput)
@@ -348,17 +355,20 @@ function enc(id, delta)
 end
 
 function key(id, state)
+  local selectedBuffer = buffers[selectedBufferId]
   -- Toggle record on active buffer
   if id == 2 and state == 1 then
-    -- Turning recording on turns playing off
-    buffers[selectedBufferId]:toggleRecording()
-
+    if not selectedBuffer.recording then
+      selectedBuffer:recording_start()
+    elseif selectedBuffer.recording then
+      selectedBuffer:recording_stop()
+    end
   -- Toggle playback based on current state
   elseif id == 3 and state == 1 then
-    if not buffers[selectedBufferId].playing then
-      buffers[selectedBufferId]:playback_start()
-    elseif buffers[selectedBufferId].playing then
-      buffers[selectedBufferId]:playback_stop()
+    if not selectedBuffer.playing then
+      selectedBuffer:playback_start()
+    elseif selectedBuffer.playing then
+      selectedBuffer:playback_stop()
     end
   end
   redraw()
