@@ -377,41 +377,41 @@ function key(id, state)
   redraw()
 end
 
-function drawUi()
-  -- UI Chrome
+function draw_metadata_container(selectedBuffer)
   screen.level(6)
   screen.move(0, 50)
   screen.line(128, 50)
-
-  screen.font_size(8)
   screen.move(1,60)
   screen.text('Buffer ' .. selectedBuffer.bufferId)
-  
+end
+
+function draw_buffer_status(selectedBuffer)
+  screen.level(15)
+  screen.move(122, 60)
   if selectedBuffer.recording then
-    screen.move(122, 60)
     screen.text('R')
-  end
-  
-  if selectedBuffer.playing then
-    screen.move(122, 60)
+  elseif selectedBuffer.playing then
     screen.text('P')
   end
+end
 
+function draw_sample_and_hold_status(selectedBuffer)
+  screen.level(15)
   if selectedBuffer.sampleAndHoldInput ~= 0 then
-    screen.level(15)
     screen.move(100, 60)
     screen.text('C' .. selectedBuffer.sampleAndHoldInput)
   end
+end
 
+function draw_quantization_status(selectedBuffer)
+  screen.level(15)
   if selectedBuffer.quantizedActive then
     screen.move(112, 60)
     screen.text('Q')
   end
+end
 
-  screen.stroke()
-
-  -- There are 50 vertical pixels for the scope so the center is at 25
-  -- Only draw the dotted line if the range is -5/+5
+function draw_center_line(selectedBuffer)
   if selectedBuffer.outputMin == -5 and selectedBuffer.outputMax == 5 then
     screen.level(1)
     for x = 0, 128, 4 do
@@ -420,6 +420,16 @@ function drawUi()
     end
     screen.stroke()
   end
+end
+
+function drawUi()
+  screen.font_size(8)
+
+  draw_metadata_container(selectedBuffer)
+  draw_buffer_status(selectedBuffer)
+  draw_sample_and_hold_status(selectedBuffer)
+  draw_quantization_status(selectedBuffer)
+  draw_center_line(selectedBuffer)
 end
 
 -- function draw_sh_pulse()
@@ -516,12 +526,8 @@ function redraw()
   screen.clear()
 
   drawUi()
-  -- Scope in record mode
-  -- Current position is centered horizontally with past value flowing to the left
   if selectedBuffer.recording then
     drawRecordingScope()
-  -- Scope in play mode
-  -- Current playhead is centered horizontally with past buffer to left and upcoming buffer to right
   elseif selectedBuffer.playing then
     drawPlayingScope()
   else
