@@ -126,12 +126,15 @@ function createBuffer(bufferId)
     octaveRange = 4,
     sampleAndHold = function(self)
       print('New s&h event on buffer ' .. self.bufferId)
+      if #self.recordingBuffer == 0 then
+        return -- Exit the function if the recording buffer is empty
+      end
       
       -- Fetch the most recent value from the recordingBuffer
       local currentValue = self.recordingBuffer[self.bufferPosition]
 
       -- TODO: This needs to only draw if the pulse is happening on the on screen buffer
-      -- draw_sh_pulse()
+      draw_sh_pulse(self.bufferId)
       
       -- Determine if quantization is active and process accordingly
       if self.quantizedActive then
@@ -432,21 +435,30 @@ function drawUi()
   draw_center_line(selectedBuffer)
 end
 
--- function draw_sh_pulse()
---   screen.level(1)
---   screen.rect(99, 54, 8, 7)
---   screen.fill()
---   screen.update()
+function draw_sh_pulse(bufferId)
+  if bufferId == selectedBuffer.bufferId then
+    screen.level(1)
 
---   clock.run(function()
---     slock.sleep(0.25)
---     clear_sh_pulse()
---   end)
--- end
+    if selectedBuffer.sampleAndHoldInput == 1 then
+      screen.rect(99, 54, 10, 8)
+    elseif selectedBuffer.sampleAndHoldInput == 2 then
+      screen.rect(99, 54, 11, 8)
+    end
 
--- function clear_sh_pulse()
---   -- TODO: Need to redraw everything here
--- end
+    screen.update()
+
+    clock.run(function()
+      clock.sleep(0.25)
+      clear_sh_pulse()
+    end)
+
+    redraw()
+  end
+end
+
+function clear_sh_pulse()
+  redraw()
+end
 
 function drawRecordingScope()
   screen.level(8)
