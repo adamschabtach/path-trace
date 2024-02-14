@@ -130,6 +130,9 @@ function createBuffer(bufferId)
       -- Fetch the most recent value from the recordingBuffer
       local currentValue = self.recordingBuffer[self.bufferPosition]
 
+      -- TODO: This needs to only draw if the pulse is happening on the on screen buffer
+      -- draw_sh_pulse()
+      
       -- Determine if quantization is active and process accordingly
       if self.quantizedActive then
         -- Quantization is active:
@@ -385,13 +388,24 @@ function drawUi()
   screen.text('Buffer ' .. selectedBuffer.bufferId)
   
   if selectedBuffer.recording then
-    screen.move(100, 60)
-    screen.text_right('REC')
+    screen.move(122, 60)
+    screen.text('R')
   end
   
   if selectedBuffer.playing then
-    screen.move(124, 60)
-    screen.text_right('PLAY')
+    screen.move(122, 60)
+    screen.text('P')
+  end
+
+  if selectedBuffer.sampleAndHoldInput ~= 0 then
+    screen.level(15)
+    screen.move(100, 60)
+    screen.text('C' .. selectedBuffer.sampleAndHoldInput)
+  end
+
+  if selectedBuffer.quantizedActive then
+    screen.move(112, 60)
+    screen.text('Q')
   end
 
   screen.stroke()
@@ -407,6 +421,22 @@ function drawUi()
     screen.stroke()
   end
 end
+
+-- function draw_sh_pulse()
+--   screen.level(1)
+--   screen.rect(99, 54, 8, 7)
+--   screen.fill()
+--   screen.update()
+
+--   clock.run(function()
+--     slock.sleep(0.25)
+--     clear_sh_pulse()
+--   end)
+-- end
+
+-- function clear_sh_pulse()
+--   -- TODO: Need to redraw everything here
+-- end
 
 function drawRecordingScope()
   screen.level(8)
