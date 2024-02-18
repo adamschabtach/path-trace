@@ -401,7 +401,7 @@ function draw_metadata_container(selectedBuffer)
 end
 
 function draw_buffer_status(selectedBuffer)
-  screen.level(15)
+  screen.level(6)
   screen.move(122, 60)
   if selectedBuffer.recording then
     screen.text('R')
@@ -411,7 +411,7 @@ function draw_buffer_status(selectedBuffer)
 end
 
 function draw_sample_and_hold_status(selectedBuffer)
-  screen.level(15)
+  screen.level(6)
   if selectedBuffer.sampleAndHoldInput ~= 0 then
     screen.move(100, 60)
     screen.text('C' .. selectedBuffer.sampleAndHoldInput)
@@ -419,7 +419,7 @@ function draw_sample_and_hold_status(selectedBuffer)
 end
 
 function draw_quantization_status(selectedBuffer)
-  screen.level(15)
+  screen.level(6)
   if selectedBuffer.quantizedActive then
     screen.move(112, 60)
     screen.text('Q')
