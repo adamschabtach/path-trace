@@ -4,7 +4,7 @@ A movement recorder for Norns and Crow.
 
 Record encoder rotations to four looping, independent buffers — one for each Crow output — and optionally set voltage output range, sample and hold trigger, and quantization.
 
-[Image]
+![Path Trace Cover Image](https://github.com/brokyo/path-trace/blob/main/cover.png?raw=true)
 
 ### Requirements
 - Norns
@@ -40,13 +40,4 @@ Record encoder rotations to four looping, independent buffers — one for each C
 - Tune playback speed on scope 
 - Connect tempo to internal clock
 - TXO support
---
--- short usage instructions
--- k2 toggles recording
--- k3 toggles playback
--- e1 selects buffer
--- e2 records motion in REC more
---
--- future ideas
--- configurable voltage range (currently +/-5v only)
--- quantization/s&h using crow inputs
+- One shots
