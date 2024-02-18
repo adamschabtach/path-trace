@@ -109,6 +109,7 @@ function createBuffer(bufferId)
       if self.playback_ref then
         clock.cancel(self.playback_ref)
         self.playback_ref = nil
+        crow.output[self.bufferId].volts = 0
         self.bufferPosition = 1
       end
     end,
