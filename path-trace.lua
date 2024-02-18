@@ -1,13 +1,19 @@
--- patch trace
+-- Patch Trace
+-- Movement recorder for Crow 
+-- 
 -- v1.0 @awakening.systems
 --
--- short script description
--- A movement recorder for Norns and Crow. 
 -- Four looping buffers
--- Independent playback control with optional sample and hold/quantization
+-- Independent playback
+-- Optional sample & hold
+-- Optional quantization
 --
--- E1 selects buffer; K2 toggles record; K3 toggles playback
--- More config in Params menu
+-- E1 selects buffer 
+-- K2 toggles record 
+-- E2 tracked in recording 
+-- K3 toggles playback
+--
+-- More config in Params
 
 musicutil = require 'musicutil' -- Musicutil library for quantization support
 
