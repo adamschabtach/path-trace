@@ -1,4 +1,14 @@
--- Four looping, recordable bufers with independent quantization
+-- patch trace
+-- v1.0 @awakening.systems
+--
+-- short script description
+-- A movement recorder for Norns and Crow. 
+-- Four looping buffers
+-- Independent playback control with optional sample and hold/quantization
+--
+-- E1 selects buffer; K2 toggles record; K3 toggles playback
+-- More config in Params menu
+
 musicutil = require 'musicutil' -- Musicutil library for quantization support
 
 -- Configuration Variables
