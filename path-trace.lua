@@ -106,8 +106,10 @@ function createBuffer(bufferId)
       while self.playing do
         -- Use the held value is sample and hold is active
         if self.sampleAndHoldInput == 1 or self.sampleAndHoldInput == 2 then
-          crow.output[self.bufferId].volts =self.heldValue
+          -- print('B:' .. self.bufferId .. ' S&H: ' .. self.heldValue)
+          crow.output[self.bufferId].volts = self.heldValue
         else
+          -- print('B:' .. self.bufferId .. ' V: ' .. self.recordingBuffer[self.bufferPosition])
           -- Otherwise use whatever is in the current buffer position
           crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
         end
@@ -125,7 +127,7 @@ function createBuffer(bufferId)
     octaveMin = 2,
     octaveRange = 4,
     sampleAndHold = function(self)
-      print('New s&h event on buffer ' .. self.bufferId)
+      -- print('New s&h event on buffer ' .. self.bufferId)
       if #self.recordingBuffer == 0 then
         return -- Exit the function if the recording buffer is empty
       end
@@ -147,12 +149,12 @@ function createBuffer(bufferId)
         local selectedNote = self.scale[scaleIndex]
         local noteInV8 = midiToVOct(selectedNote)
         
-        print('Q ' .. selectedNote) -- Log the quantized note
-        print('v/8 ' .. noteInV8) -- Log the v/oct note
+        -- print('Q ' .. selectedNote) -- Log the quantized note
+        -- print('v/8 ' .. noteInV8) -- Log the v/oct note
         self.heldValue = noteInV8 -- Set the voltage to the helf value
       else
         -- Quantization is not active: use the currentValue directly
-        print('R ' .. currentValue) -- Log the raw currentValue
+        -- print('R ' .. currentValue) -- Log the raw currentValue
         self.heldValue = currentValue -- Set the heldValue to the raw currentValue
       end
     end,
