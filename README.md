@@ -1,3 +1,13 @@
+### Fork of Path Trace for Norns and Crow
+
+Initial plans for my modifications are:
+- Variable-speed playback so that the recording can play faster or slower than the original.
+- MIDI input for recording because I can't rotate the Norns encoder fast enough to make the recordings I want.
+
+Also, I'm going to be lazy and get an AI to do this coding for me. I tried both ChatGPT o3 and Claude 3.7 Sonnet. Using the exact same prompts for the modifications, Claude produced substantially better code and explanations thereof.
+
+Original ReadMe follows.
+
 ### Path Trace
 
 A movement recorder for Norns and Crow. 
