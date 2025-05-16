@@ -1,21 +1,89 @@
--- Patch Trace
+function cleanup()
+  -- Clean up MIDI connections when script is stopped
+  if midi_device then
+    midi_device.event = nil
+  end
+end-- MIDI connection function
+function scan_midi_devices()
+  midi_device_names = {}
+  midi_devices = {}
+  
+  -- Add "None" as the first option
+  table.insert(midi_device_names, "None")
+  
+  -- Scan for connected MIDI devices
+  for i = 1, #midi.vports do
+    local dev = midi.vports[i]
+    if dev.name and dev.name ~= "none" then
+      table.insert(midi_device_names, dev.name)
+      table.insert(midi_devices, i)
+    end
+  end
+  
+  -- If no devices found, ensure we have at least the "None" option
+  if #midi_device_names == 1 then
+    print("No MIDI devices found")
+  else
+    print(#midi_device_names - 1 .. " MIDI device(s) found")
+  end
+  
+  return midi_device_names
+end
+
+function connect_midi()
+  if midi_device then
+    midi_device.event = nil
+  end
+  
+  if selected_midi_device > 1 and midi_devices[selected_midi_device - 1] then
+    midi_device = midi.connect(midi_devices[selected_midi_device - 1])
+    midi_device.event = midi_event
+    print("Connected to MIDI device: " .. midi_device_names[selected_midi_device])
+  else
+    midi_device = nil
+    print("MIDI input disabled")
+  end
+end
+
+-- MIDI event handler
+function midi_event(data)
+  local msg = midi.to_msg(data)
+  
+  -- Check if it's a control change message on our selected channel
+  if msg.type == "cc" and (msg.ch == midi_channel or midi_channel == 0) then
+    -- If it's our selected CC number
+    if msg.cc == midi_cc then
+      -- Record the value if the selected buffer is recording and using MIDI input
+      local selectedBuffer = buffers[selectedBufferId]
+      if selectedBuffer.recording and selectedBuffer.inputSource == 2 then
+        -- Map MIDI value (0-127) to our raw value range
+        rawValue = mapValue(msg.val, 0, 127, rawValueMin, rawValueMax)
+      end
+    end
+  end
+end-- Patch Trace
 -- Movement recorder for Crow 
 -- 
--- v1.0 @awakening.systems
+-- v1.2 @awakening.systems
+-- Speed mod & MIDI control added
 --
 -- Four looping buffers
 -- Independent playback
 -- Optional sample & hold
 -- Optional quantization
+-- Variable playback speed
+-- MIDI CC recording
 --
 -- E1 selects buffer 
 -- K2 toggles record 
--- E2 tracked in recording 
+-- E2 tracked in recording (or MIDI CC)
 -- K3 toggles playback
+-- E3 adjusts playback speed
 --
 -- More config in Params
 
 musicutil = require 'musicutil' -- Musicutil library for quantization support
+midi = require 'midi' -- For MIDI support
 
 -- Configuration Variables
 sleepTime = 0.03 -- Time in between recording 50ms fairly arbitrary
@@ -27,6 +95,14 @@ rawValue = 0 -- Initial value for knob recording
 rawValueMin = -100 -- Knob recording minimum
 rawValueMax = 100 -- Knob recording maximum
 selectedBufferId = 1 -- Initial buffer. Changed with e2
+
+-- MIDI variables
+midi_device = nil
+midi_devices = {}
+midi_device_names = {}
+selected_midi_device = 1
+midi_channel = 1
+midi_cc = 1  -- Default CC to record
 
 -- Helper Functions for common tasks
 function getVoltageRange(value)
@@ -57,6 +133,10 @@ function createBuffer(bufferId)
     bufferId = bufferId,
     outputMin = -5,
     outputMax = 5,
+    -- Input source selection
+    inputSource = 1, -- 1 = Encoder, 2 = MIDI CC
+    -- Speed control
+    playbackSpeed = 1.0, -- Default normal speed
     -- Recording
     recording = false,
     recordingRef = nil,
@@ -130,10 +210,46 @@ function createBuffer(bufferId)
           -- Otherwise use whatever is in the current buffer position
           crow.output[self.bufferId].volts = self.recordingBuffer[self.bufferPosition]
         end
+        
         -- Update buffer position for playback and loop if at end
-        self.bufferPosition = (self.bufferPosition % #self.recordingBuffer) + 1
+        -- Apply speed multiplier to determine how to advance position
+        if self.playbackSpeed >= 1.0 then
+          -- For speeds >= 1.0, we might skip positions to go faster
+          local positionAdvance = math.floor(self.playbackSpeed)
+          self.bufferPosition = self.bufferPosition + positionAdvance
+          -- Wrap around if we exceed buffer length
+          if self.bufferPosition > #self.recordingBuffer then
+            self.bufferPosition = (self.bufferPosition % #self.recordingBuffer)
+            if self.bufferPosition == 0 then 
+              self.bufferPosition = 1 
+            end
+          end
+        else
+          -- For speeds < 1.0, we advance slower (need to wait multiple iterations)
+          -- We'll use fractional position tracking for smooth slow playback
+          local fractionalAdvance = self.playbackSpeed
+          self.fractionalPosition = (self.fractionalPosition or 0) + fractionalAdvance
+          
+          if self.fractionalPosition >= 1.0 then
+            -- Only advance position when we've accumulated enough fractional movement
+            self.bufferPosition = self.bufferPosition + 1
+            self.fractionalPosition = self.fractionalPosition - 1.0
+            
+            -- Wrap around if needed
+            if self.bufferPosition > #self.recordingBuffer then
+              self.bufferPosition = 1
+            end
+          end
+        end
+        
         redraw()
-        clock.sleep(sleepTime)
+        -- Adjust sleep time based on playback speed for extra smoothness
+        -- Faster speeds get shorter sleeps, slower speeds get normal sleeps
+        local adjustedSleepTime = sleepTime
+        if self.playbackSpeed > 1.0 then
+          adjustedSleepTime = sleepTime / self.playbackSpeed
+        end
+        clock.sleep(adjustedSleepTime)
       end
     end,
     -- Quantization
@@ -178,12 +294,75 @@ function createBuffer(bufferId)
     buildScale = function(self)
       local rootNote =  (self.octaveMin * 12) + scaleKey
       self.scale = musicutil.generate_scale(rootNote, params:get("mode"), self.octaveRange)
+    end,
+    -- Speed control
+    set_playback_speed = function(self, speed)
+      self.playbackSpeed = speed
+      redraw()
     end
   }
 end
 
 function addParameters()
     params:add_separator('Path Tracer')
+    
+    -- MIDI parameters
+    params:add_separator('MIDI Input')
+    
+    -- MIDI device selection
+    params:add{
+      type = "option",
+      id = "midi_device",
+      name = "MIDI Device",
+      options = midi_device_names,
+      default = 1,
+      action = function(value)
+        selected_midi_device = value
+        connect_midi()
+      end
+    }
+    
+    -- MIDI channel
+    params:add{
+      type = "number",
+      id = "midi_channel",
+      name = "MIDI Channel",
+      min = 1,
+      max = 16,
+      default = 1,
+      action = function(value)
+        midi_channel = value
+      end
+    }
+    
+    -- MIDI CC number
+    params:add{
+      type = "number",
+      id = "midi_cc",
+      name = "MIDI CC Number",
+      min = 0,
+      max = 127,
+      default = 1,
+      action = function(value)
+        midi_cc = value
+      end
+    }
+    
+    -- Input source selection for each buffer
+    for i = 1, 4 do
+      params:add{
+        type = "option",
+        id = "input_source_" .. i,
+        name = "Buffer " .. i .. " Input",
+        options = {"Encoder", "MIDI CC"},
+        default = 1,
+        action = function(value)
+          buffers[i].inputSource = value
+        end
+      }
+    end
+    
+    params:add_separator('Quantization')
     
     params:add{
       type = "option",
@@ -214,7 +393,19 @@ function addParameters()
       
     -- Create a group for individual buffer params
     for i = 1, 4 do
-      params:add_group("Buffer " .. i, 5)
+      params:add_group("Buffer " .. i, 6) -- Increased to 6 for speed parameter
+      
+      -- Add playback speed parameter
+      params:add{
+        type = "control",
+        id = "playback_speed_" .. i,
+        name = "Playback Speed",
+        controlspec = controlspec.new(0.25, 4.0, 'exp', 0.01, 1.0, "x"),
+        action = function(value)
+          buffers[i]:set_playback_speed(value)
+        end
+      }
+      
       -- Select voltage range
       params:add{
         type = "option",
@@ -300,13 +491,14 @@ function addParameters()
     end
 end
 
-
-
 function init()
   -- Set up scale param
   for i = 1, #musicutil.SCALES do
     table.insert(scaleNames, musicutil.SCALES[i].name) 
   end
+  
+  -- Scan for MIDI devices
+  scan_midi_devices()
 
   addParameters()
   params:set("scaleKey", 0)
@@ -319,12 +511,14 @@ function init()
     table.insert(buffers, createBuffer(i))
   end
   
-
   for i = 1, 4 do
     buffers[i]:buildScale()
   end
 
   selectedBuffer = buffers[1]
+  
+  -- Connect to MIDI if available
+  connect_midi()
 
   -- Wait for a pulse on crow input
   crow.input[1].change = function()
@@ -352,7 +546,6 @@ function init()
   crow.input[2].mode("change", 1.0, 0.1, "rising")
 end
 
-
 function enc(id, delta)
   -- Select active buffer
   if id == 1 then
@@ -373,9 +566,17 @@ function enc(id, delta)
     rawValue = capValue(rawValue + scaledDelta, rawValueMin, rawValueMax)
   end
 
-  -- Still free
+  -- Encoder 3 now controls playback speed
   if id == 3 then
-
+    -- Only adjust speed if not recording to avoid confusion
+    if not selectedBuffer.recording then
+      -- Get current value and apply a change, keep reasonable bounds
+      local newSpeed = selectedBuffer.playbackSpeed + (delta * 0.05)
+      newSpeed = capValue(newSpeed, 0.25, 4.0)
+      selectedBuffer:set_playback_speed(newSpeed)
+      -- Also update the parameter for consistency
+      params:set("playback_speed_" .. selectedBufferId, newSpeed)
+    end
   end
 end
 
@@ -433,6 +634,12 @@ function draw_quantization_status(selectedBuffer)
   end
 end
 
+function draw_speed_indicator(selectedBuffer)
+  screen.level(6)
+  screen.move(75, 60)
+  screen.text(string.format("%.2fx", selectedBuffer.playbackSpeed))
+end
+
 function draw_center_line(selectedBuffer)
   if selectedBuffer.outputMin == -5 and selectedBuffer.outputMax == 5 then
     screen.level(1)
@@ -444,10 +651,22 @@ function draw_center_line(selectedBuffer)
   end
 end
 
+function draw_input_source(selectedBuffer)
+  screen.level(6)
+  screen.move(50, 60)
+  if selectedBuffer.inputSource == 1 then
+    screen.text("Enc")
+  else
+    screen.text("MIDI")
+  end
+end
+
 function drawUi()
   screen.font_size(8)
 
   draw_metadata_container(selectedBuffer)
+  draw_input_source(selectedBuffer)
+  draw_speed_indicator(selectedBuffer)
   draw_buffer_status(selectedBuffer)
   draw_sample_and_hold_status(selectedBuffer)
   draw_quantization_status(selectedBuffer)
@@ -551,7 +770,6 @@ function drawIdleScope()
   end
   screen.stroke() -- Draw the line segment
 end
-
 
 function redraw()
   screen.clear()
